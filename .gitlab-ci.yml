@@ -1,0 +1,15 @@
+stages:
+  - deploy
+
+pages:
+  stage: deploy
+  script:
+    - mkdir public
+    - mv data         public/
+    - mv prisms       public/
+    - cp hanzinet.css public/
+  artifacts:
+    paths:
+      - public
+  only:
+    - master

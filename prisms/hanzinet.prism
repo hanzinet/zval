@@ -1,0 +1,157 @@
+(module hanzinet)
+
+(defp charval
+  :model (id)
+  :repr  (transform (. ?char ?rel ?val)
+           [:div [:b $rel] " " [:span $val]]))
+
+(defp base-data
+  :model (and (attr-prism (num ?strokes))
+              (attr-prism (num ?frequency)))
+  :repr  [:ul {:class "data-items"}
+           [:li [:b "strokes: "]   $strokes]
+           [:li [:b "frequency: "] $frequency]])
+
+(defp meanings
+  :model (seq (. $arg en (str ?m)))
+  :repr  (coll :class "data-items" :el-repr [:div.meaning $m]))
+
+;; ------------------------------------
+;; readings
+
+(defp readings-on
+  :model (seq (. $arg ja_on (str ?text)))
+  :repr  (coll :class "data-items" :el-repr [:div.reading.kana $text]))
+
+(defp readings-kun
+  :model (seq (. $arg ja_kun (str ?text)))
+  :repr  (coll :class "data-items" :el-repr [:div.reading.kana $text]))
+
+(defp readings-mandarin
+  :model (seq (. $arg pinyin-marked (str ?text)))
+  :repr  (coll :class "data-items" :el-repr [:div.reading.latin $text]))
+
+(defp readings-korean
+  :model (seq (. $arg korean_h (str ?text)))
+  :repr  (coll :class "data-items" :el-repr [:div.reading.hangeul $text]))
+
+(defp readings-vietnam
+  :model (seq (. $arg vietnam (str ?text)))
+  :repr  (coll :class "data-items" :el-repr [:div.reading.latin $text]))
+
+(defp data-cols
+  :model (and meanings base-data readings-on readings-kun
+              readings-mandarin readings-korean readings-vietnam)
+  :repr  [:ul.data-cols
+           [:li [:span.data-col-title "meaning"]    $meanings]
+           [:li [:span.data-col-title "mandarin"]   $readings-mandarin]
+           [:li [:span.data-col-title "onyomi"]     $readings-on]
+           [:li [:span.data-col-title "kunyomi"]    $readings-kun]
+           [:li [:span.data-col-title "korean"]     $readings-korean]
+           [:li [:span.data-col-title "vietnamese"] $readings-vietnam]
+           [:li [:span.data-col-title "data"]       $base-data]])
+
+;; ------------------------------------
+;; components
+
+(defp comp-with-strokes
+  :params {:graph-expr :arg}
+  :model (chain (attr-prism (num ?strokes)))
+  :repr  [:div.chr-with-strokes
+           [:div.logograph (serialize $arg)]
+           [:span.strokes "(" (tail) ")"]])
+
+(defp component-phonetic
+  :params {:apply-repr :apply, :serialize? false}
+  :model (one (. $arg comp-phonetic ?comp))
+  :repr  (when $comp {:set-resource (set-resource $comp)
+                      :text         (serialize    $comp)}))
+
+(defp component-semantic
+  :params {:apply-repr :apply, :serialize? false}
+  :model (one (. $arg comp-semantic ?comp))
+  :repr  (when $comp {:set-resource (set-resource $comp)
+                      :text         (serialize    $comp)}))
+
+(defn logograph-box
+  [{:keys [set-resource text]}]
+  [:div.set-resource {:on-click set-resource} [:div.logograph text]])
+
+(defp radical-classic
+  :params {:apply-repr :apply}
+  :model (one (. $arg radical-classic-chr ?rad))
+  :repr  (serialize $rad))
+
+(defp relation-evolved
+  :model (seq (. $arg evolved-from ?comp))
+  :repr  (coll
+           :order-by ?comp
+           :el-repr  [:div.set-resource {:on-click (set-resource $comp)} $comp]))
+
+(defn tree-view
+  [{:as kwargs :keys [arg radical phonetic semantic]}]
+  (let [phonetic-radical? (= radical (:text phonetic))
+        semantic-radical? (= radical (:text semantic))
+        discrete-radical? (not (or phonetic-radical? semantic-radical?))]
+    [linetree
+      :repr :table
+      :node [:div.chr-main (get kwargs :comp)]
+      :branches
+      [{:labels {:first (str "phonetic" (when phonetic-radical? " [R]"))}
+        :node   [:div.chr-component
+                  (or (when phonetic [logograph-box phonetic])
+                      [:div.none [:div.logograph arg]])]}
+       {:labels {:first (str "semantic" (when semantic-radical? " [R]"))}
+        :node   [:div.chr-component
+                  (or (when semantic [logograph-box semantic])
+                      [:div.none [:div.logograph arg]])]}]]))
+
+(defp components-tree
+  :params {:apply-repr :vector, :serialize? false}
+  :model (and comp-with-strokes
+              radical-classic
+              component-phonetic
+              component-semantic)
+  :repr
+  [tree-view
+    {:arg      (serialize $arg)
+     :comp     $comp-with-strokes
+     :radical  $radical-classic
+     :phonetic $component-phonetic
+     :semantic $component-semantic}])
+
+(defp derivations
+  :params {:serialize? false}
+  :model (seq (. $arg derivation ?super))
+  :repr  [:div.derivations
+           (if $ret
+             (coll :class   "derivations"
+                   :el-repr [:div.set-resource {:on-click (set-resource $super)}
+                              (serialize $super)])
+             [:div.none])])
+
+(defp etymology
+  :params {:serialize? false}
+  :model (one (. $arg etymology (str ?m)))
+  :repr  [:div.etymology
+           (if $ret
+             (md (serialize $m))
+             [:div.none])])
+
+;; ------------------------------------
+;; main
+
+(defp hanzinet
+  :params {:graph-expr :arg, :serialize? true, :apply-repr :apply}
+  :model (and components-tree
+              derivations etymology
+              data-cols relation-evolved)
+  :repr
+  [:div.hanzinet
+    $components-tree
+    [:div.data-cols-box $data-cols]
+    [:div.sections-box
+      [:ul.sections
+        [:li [:span.section-title "etymology (Howell & Morimoto)"]
+          $etymology]
+        [:li [:span.section-title "derivations"]  $derivations]]]])
